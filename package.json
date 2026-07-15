@@ -1,17 +1,17 @@
 {
   "name": "msi-product-page-scraper",
   "version": "1.0.0",
-  "description": "",
+  "description": "Simple web scraper for msi product page",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "scrape": "node src/scrape.js"
   },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/JessFreak/msi-product-page-scraper.git"
   },
   "keywords": [],
-  "author": "",
+  "author": "JessFreak",
   "license": "ISC",
   "type": "module",
   "bugs": {
