@@ -13,8 +13,8 @@ The scraper runs in **headless mode**.
 
 1. Clone the repository:
 ```bash
-  git clone https://github.com/JessFreak/msi-product-page-scraper.git
-  cd msi-product-page-scraper
+git clone https://github.com/JessFreak/msi-product-page-scraper.git
+cd msi-product-page-scraper
 ```
 
 2. Install dependencies:
