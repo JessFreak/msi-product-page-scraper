@@ -11,6 +11,7 @@ const getPrices = async (page) => {
 
   let price = parsedNew || parsedOld || null;
   let sale_price = null;
+
   if (parsedOld && parsedNew) {
     price = parsedOld;
     sale_price = parsedNew;
@@ -20,32 +21,32 @@ const getPrices = async (page) => {
 }
 
 const getRating = async (page) => {
-  // appears later
-  await page.waitForFunction(() => {
-    const el = document.querySelector('#average-rating-info') || document.querySelector('#description-list-average-rating');
-    return el && el.textContent.trim().length > 0;
-  }, { timeout: 5000 }).catch(() => {});
+  try {
+    await page.waitForFunction(() => {
+      const el = document.querySelector('#average-rating-info') || document.querySelector('#description-list-average-rating');
+      return el && el.textContent.trim().length > 0;
+    }, { timeout: 5000 });
 
-  const ratingText = await page.evaluate(() => {
-    const el = document.querySelector('#average-rating-info') || document.querySelector('#description-list-average-rating');
-    return el ? el.textContent : '';
-  }).catch(() => '');
+    const ratingText = await page.evaluate(() => {
+      const el = document.querySelector('#average-rating-info') || document.querySelector('#description-list-average-rating');
+      return el ? el.textContent : '';
+    });
 
-  const ratingMatch = ratingText.match(/([\d.]+)\s*\((\d+)\)/);
-  const star_rating = ratingMatch ? parseFloat(ratingMatch[1]) : null;
-  const review_count = ratingMatch ? parseInt(ratingMatch[2], 10) : null;
+    const ratingMatch = ratingText.match(/([\d.]+)\s*\((\d+)\)/);
+    const star_rating = ratingMatch ? parseFloat(ratingMatch[1]) : null;
+    const review_count = ratingMatch ? parseInt(ratingMatch[2], 10) : null;
 
-  return {
-    star_rating,
-    review_count,
+    return { star_rating, review_count };
+  } catch {
+    return { star_rating: null, review_count: null };
   }
 }
 
 const getAvailability = async (page) => {
   const availText = (await page.locator('#prices-wrapper').textContent().catch(() => '')).toLowerCase();
   if (availText.includes('in stock')) return 'in_stock';
-  else if (availText.includes('out of stock')) return 'out_of_stock';
-  else if (availText.includes('pre-order') || availText.includes('pre order')) return 'pre_order';
+  if (availText.includes('out of stock')) return 'out_of_stock';
+  if (availText.includes('pre-order') || availText.includes('pre order')) return 'pre_order';
 
   return null;
 }
@@ -54,8 +55,8 @@ const getBasicInfo = async (page) => {
   try {
     const titleLocator = page.locator('h2.title').first();
     await titleLocator.waitFor({ state: 'visible', timeout: 5000 });
+    const title = (await titleLocator.textContent()).trim();
 
-    const title = (await titleLocator.textContent().catch(() => ''))?.trim() || null;
     const item_id = await page.locator('input[name="product_id"]').getAttribute('value').catch(() => null);
 
     const descriptionText = await page.locator('h2.title + div p').first().textContent().catch(() => null);
@@ -85,12 +86,11 @@ const getBasicInfo = async (page) => {
       availability: null,
       star_rating: null,
       review_count: null,
-      brand: null,
+      brand: 'MSI',
     };
   }
 }
 
-// breadcrumbs
 const getNavigation = async (page) => {
   try {
     const breadcrumbs = await page.evaluate(() => {
@@ -102,7 +102,7 @@ const getNavigation = async (page) => {
           url: link ? link.href : null
         };
       }).filter(item => item.name);
-    }).catch(() => []);
+    });
 
     const cleanTree = breadcrumbs.filter(b => b.name.toLowerCase() !== 'home');
     const product_category = cleanTree.map(b => b.name).join(' > ') || null;
@@ -117,7 +117,6 @@ const getNavigation = async (page) => {
   }
 }
 
-// images
 const getMedia = async (page) => {
   try {
     const mainImg = await page.locator('#imagePopup').getAttribute('src').catch(() => null);
@@ -126,7 +125,7 @@ const getMedia = async (page) => {
       const imgs = Array.from(document.querySelectorAll('.product-detail-thumb-bto'));
       const urls = imgs.map(img => img.getAttribute('popup_img')).filter(Boolean);
       return [...new Set(urls)];
-    }).catch(() => []);
+    });
 
     const filteredAdditionals = additionalImgs.filter(url => url !== mainImg);
 
@@ -142,7 +141,7 @@ const getMedia = async (page) => {
 
 const getSpecs = async (page) => {
   try {
-    return page.evaluate(() => {
+    return await page.evaluate(() => {
       const rows = Array.from(document.querySelectorAll('.table-borderless tbody tr'));
       return rows.map(row => {
         const nameEl = row.querySelector('th');
@@ -152,7 +151,7 @@ const getSpecs = async (page) => {
           value: valueEl ? valueEl.textContent.trim() : null
         };
       }).filter(item => item.name);
-    }).catch(() => []);
+    });
   } catch (error) {
     console.warn('Specs extraction error:', error.message);
     return [];
@@ -196,7 +195,7 @@ const extractProductData = async (page) => {
     review_count: basicInfo.review_count,
     gtin: identifiers.gtin,
     mpn: identifiers.mpn,
-    scraped_at: new Date().toISOString()
+    scraped_at: new Date().toISOString(),
   };
 }
 
@@ -204,8 +203,17 @@ async function main() {
   let browser;
   try {
     console.log('Launching browser...');
-    browser = await chromium.launch({ headless: false });
-    const context = await browser.newContext();
+    browser = await chromium.launch({
+      headless: false,
+      args: [
+        '--headless',
+      ],
+    });
+
+    const context = await browser.newContext({
+      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+    });
+
     const page = await context.newPage();
 
     const url = 'https://us-store.msi.com/Motherboards/Intel-Platform-Motherboard/INTEL-Z890/MAG-Z890-TOMAHAWK-WIFI';
@@ -218,7 +226,6 @@ async function main() {
     const outputPath = path.join(outputDir, 'product.json');
 
     await fs.mkdir(outputDir, { recursive: true });
-
     await fs.writeFile(outputPath, JSON.stringify(productData, null, 2), 'utf-8');
     console.log(`Successfully saved product data to ${outputPath}`);
 
@@ -226,8 +233,8 @@ async function main() {
     console.error('Scraper failed:', error);
   } finally {
     if (browser) {
-      // await browser.close();
-      console.log('Browser left open for debugging.');
+      await browser.close();
+      console.log('Closing browser.');
     }
   }
 }
