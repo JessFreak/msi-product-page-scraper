@@ -1,4 +1,6 @@
 import { chromium } from 'playwright';
+import fs from 'fs/promises';
+import path from 'path';
 
 const getPrices = async (page) => {
   const oldText = await page.locator('#prices-old').textContent().catch(() => null);
@@ -59,26 +61,31 @@ const getBasicInfo = async (page) => {
     const descriptionText = await page.locator('h2.title + div p').first().textContent().catch(() => null);
     const description = descriptionText ? descriptionText.trim() : null;
 
+    const prices = await getPrices(page);
+    const availability = await getAvailability(page);
+    const rating = await getRating(page);
+
     return {
       item_id,
       title,
-      ... await getPrices(page),
-      availability: await getAvailability(page),
-      ... await getRating(page),
-      brand: 'MSI',
       description,
+      ...prices,
+      availability,
+      ...rating,
+      brand: 'MSI',
     };
   } catch (error) {
     console.warn('Basic info extraction error:', error.message);
     return {
+      item_id: null,
       title: null,
+      description: null,
       price: null,
       sale_price: null,
       availability: null,
       star_rating: null,
       review_count: null,
       brand: null,
-      description: null,
     };
   }
 }
@@ -133,9 +140,9 @@ const getMedia = async (page) => {
   }
 }
 
-const getSpecsAndIdentifiers = async (page) => {
+const getSpecs = async (page) => {
   try {
-    const specs = await page.evaluate(() => {
+    return page.evaluate(() => {
       const rows = Array.from(document.querySelectorAll('.table-borderless tbody tr'));
       return rows.map(row => {
         const nameEl = row.querySelector('th');
@@ -146,19 +153,20 @@ const getSpecsAndIdentifiers = async (page) => {
         };
       }).filter(item => item.name);
     }).catch(() => []);
-
-    const mpnSpec = specs.find(s => s.name?.toLowerCase().includes('manufacturer number'));
-    const mpn = mpnSpec ? mpnSpec.value : null;
-
-    return {
-      specs,
-      mpn,
-      gtin: null,
-    };
   } catch (error) {
-    console.warn('Specs/Identifiers extraction error:', error.message);
-    return { specs: [], mpn: null, gtin: null, description: null };
+    console.warn('Specs extraction error:', error.message);
+    return [];
   }
+}
+
+const getIdentifiers = (specs) => {
+  const mpnSpec = specs.find(s => s.name?.toLowerCase().includes('manufacturer number'));
+  const mpn = mpnSpec ? mpnSpec.value : null;
+
+  return {
+    mpn,
+    gtin: null,
+  };
 }
 
 const extractProductData = async (page) => {
@@ -167,14 +175,27 @@ const extractProductData = async (page) => {
   const basicInfo = await getBasicInfo(page);
   const navInfo = await getNavigation(page);
   const media = await getMedia(page);
-  const specsAndIds = await getSpecsAndIdentifiers(page);
+  const specs = await getSpecs(page);
+  const identifiers = getIdentifiers(specs);
 
   return {
     url: page.url(),
-    ...basicInfo,
-    ...navInfo,
-    ...media,
-    ...specsAndIds,
+    item_id: basicInfo.item_id,
+    title: basicInfo.title,
+    brand: basicInfo.brand,
+    product_category: navInfo.product_category,
+    category_tree: navInfo.category_tree,
+    description: basicInfo.description,
+    price: basicInfo.price,
+    sale_price: basicInfo.sale_price,
+    availability: basicInfo.availability,
+    image_url: media.image_url,
+    additional_image_urls: media.additional_image_urls,
+    specs: specs,
+    star_rating: basicInfo.star_rating,
+    review_count: basicInfo.review_count,
+    gtin: identifiers.gtin,
+    mpn: identifiers.mpn,
     scraped_at: new Date().toISOString()
   };
 }
@@ -192,7 +213,15 @@ async function main() {
     await page.goto(url, { waitUntil: 'load' });
 
     const productData = await extractProductData(page);
-    console.log('Result:', productData);
+
+    const outputDir = path.join(process.cwd(), 'output');
+    const outputPath = path.join(outputDir, 'product.json');
+
+    await fs.mkdir(outputDir, { recursive: true });
+
+    await fs.writeFile(outputPath, JSON.stringify(productData, null, 2), 'utf-8');
+    console.log(`Successfully saved product data to ${outputPath}`);
+
   } catch (error) {
     console.error('Scraper failed:', error);
   } finally {
